@@ -982,6 +982,8 @@ const onTable = p => Math.abs(p.x) <= HW + .004 && p.z <= TZ0 + .004 && p.z >= T
 // 自分のコートで1回 → ネットをこえる → 相手のコートで1回 → 光る箱、でなければ err
 function processPath(W0, fix = false) {
   let W = W0.map(p => V3(p.x, Math.max(CY, p.y), clamp(p.z, ZP, R0.z + .6)));
+  // 台のすぐ近くまで下がった谷は、台にふれたことにする（線を取りなおしたときのずれをなくす）
+  for (let i = 1; i < W.length - 1; i++) if (W[i].y <= CY + .02 && W[i].y <= W[i - 1].y && W[i].y <= W[i + 1].y) W[i].y = CY;
   const near = p => p.y <= CY + .002, runs = []; let a = -1;
   for (let i = 1; i < W.length; i++) { if (near(W[i])) { if (a < 0) a = i; } else if (a >= 0) { runs.push([a, i - 1]); a = -1; } }
   if (a >= 0) runs.push([a, W.length - 1]);
@@ -1842,7 +1844,7 @@ requestAnimationFrame(frame);
 window.__mt = {
   get mode() { return mode; }, get ballPos() { return ball.position; }, ED, BAT, toWorld, len3, inZone, encode, decode, toScreen, R0, ZP, CAP, makePath, get camera() { return camera; },
   get pitch() { return PITCH; }, openBall, startAtBat, cleanCode, badName,
-  keeper, pitcher, processPath, defaultPath, realPath, swingAt, spinOk, ZX, ZB, ZT, CY, NZ, NTOP, TY, onTable, setED,
+  keeper, pitcher, processPath, defaultPath, realPath, swingAt, spinOk, combine, screenTo3, finish, ZX, ZB, ZT, CY, NZ, NTOP, TY, onTable, setED,
   setStroke(pts) { edEnter(false); ED.pts = pts; ED.drawing = true; edPid = 1; edUp({ pointerId: 1 }); return !!ED.P; },
   manual(on) { MANUAL = on; }, tick(dt, draw = true) { stepAll(dt, draw); }, run(n, dt = 1 / 30) { for (let i = 0; i < n; i++) stepAll(dt, i === n - 1); }, get time() { return gameT; }, SND, startPick, setView, startTest, pickAt, setCam, edEnter,
 };
