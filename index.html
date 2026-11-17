@@ -365,6 +365,9 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 const $ = s => document.querySelector(s);
 function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (_) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { } }
+const FR_AUTH = 'frtk_auth'; // 天下取りマース（別のFirebase）と同じ名前 tk_auth を使っていて鍵を消し合っていたので、名前を分けた（前の鍵は引き継ぐ）
+function authLoad() { let a = lsGet(FR_AUTH); if (!a) { const o = lsGet('tk_auth'); if (o && o.refresh) { a = o; lsSet(FR_AUTH, o); } } return a; }
+function seenLoad() { let s = lsGet('mtk_seen'); if (!s) { const o = lsGet('tk_seen'); s = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; } return s; } // tk_seen は天下取りマースと名前がかぶっていたので mtk_seen に分けた
 const QS = new URLSearchParams(location.search);
 const GAME_URL = 'https://nasubi-no-oniwa.github.io/mahou-takkyu/';
 
@@ -1592,20 +1595,20 @@ function postX(body, code) { const text = body + '\n' + tr('tags') + '\n' + link
 /* ===================== Firebase ===================== */
 const FB = { apiKey: 'AIzaSyCMwGPHPKsDByV07QPq56-PGXTDxcYVNfc', databaseURL: 'https://furoya-no-onna-default-rtdb.asia-southeast1.firebasedatabase.app' };
 async function fbAuth() {
-  let a = lsGet('tk_auth'); if (a && a.exp > Date.now() + 60000) return a;
+  let a = authLoad(); if (a && a.exp > Date.now() + 60000) return a;
   if (a && a.refresh) {
     try {
       const r = await fetch('https://securetoken.googleapis.com/v1/token?key=' + FB.apiKey, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(a.refresh) });
-      if (r.ok) { const j = await r.json(); a = { uid: j.user_id, token: j.id_token, refresh: j.refresh_token, exp: Date.now() + (+j.expires_in) * 1000 }; lsSet('tk_auth', a); return a; }
+      if (r.ok) { const j = await r.json(); a = { uid: j.user_id, token: j.id_token, refresh: j.refresh_token, exp: Date.now() + (+j.expires_in) * 1000 }; lsSet(FR_AUTH, a); return a; }
     } catch (_) { }
   }
   const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + FB.apiKey, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnSecureToken: true }) });
   if (!r.ok) throw new Error('auth');
-  const j = await r.json(); a = { uid: j.localId, token: j.idToken, refresh: j.refreshToken, exp: Date.now() + (+j.expiresIn) * 1000 }; lsSet('tk_auth', a); return a;
+  const j = await r.json(); a = { uid: j.localId, token: j.idToken, refresh: j.refreshToken, exp: Date.now() + (+j.expiresIn) * 1000 }; lsSet(FR_AUTH, a); return a;
 }
 async function fbGet(path, q) { const r = await fetch(FB.databaseURL + '/' + path + '.json' + (q || '')); if (!r.ok) throw new Error('get ' + r.status); return r.json(); }
 async function fbPatch(path, val, a) { const r = await fetch(FB.databaseURL + '/' + path + '.json?auth=' + encodeURIComponent(a.token), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(val) }); if (!r.ok) { const e = new Error('patch ' + r.status); e.status = r.status; throw e; } return r.json(); }
-const myUid = () => (lsGet('tk_auth') || {}).uid;
+const myUid = () => (authLoad() || {}).uid;
 const mine = () => lsGet('tk_mine') || [];
 const doneList = () => lsGet('tk_done') || [];
 function markDone(code) { const d = doneList(); if (!d.includes(code)) { d.push(code); lsSet('tk_done', d.slice(-500)); } }
@@ -1644,7 +1647,7 @@ $('#regGo').onclick = guard(async () => {
     }
     if (!code) throw new Error('code');
     const m = mine(); m.unshift({ c: code, n: name, t: Date.now() }); lsSet('tk_mine', m.slice(0, 100));
-    const seen = lsGet('tk_seen') || {}; seen[code] = { k: 0, h: 0 }; lsSet('tk_seen', seen);
+    const seen = seenLoad(); seen[code] = { k: 0, h: 0 }; lsSet('mtk_seen', seen);
     SND.ok(); showDone(code, name);
   } catch (e) {
     note.className = 'note err'; note.textContent = (e.status === 401 || e.status === 403) ? tr('regWait') : tr('regFail');
@@ -1799,13 +1802,13 @@ async function checkMyNews() {
   newsAt = Date.now();
   try {
     const cs = await Promise.all(m.map(x => fbGet('takkyu/cnt/' + x.c).catch(() => null)));
-    const seen = lsGet('tk_seen') || {}, rows = [];
+    const seen = seenLoad(), rows = [];
     m.forEach((x, i) => {
       const c = cs[i]; if (!c) return; const k = (c.a || 0) - (c.h || 0), h = c.h || 0, sv = seen[x.c] || { k: 0, h: 0 };
       if (k > sv.k || h > sv.h) rows.push({ n: x.n, dk: Math.max(0, k - sv.k), dh: Math.max(0, h - sv.h) });
       seen[x.c] = { k, h };
     });
-    lsSet('tk_seen', seen);
+    lsSet('mtk_seen', seen);
     const html = rows.length ? `<p>${esc(tr('myNewsT'))}</p>` + rows.slice(0, 5).map(r => `<div><b>${esc(r.n)}</b><span>${esc(tr('myNewsL', { k: r.dk, h: r.dh }))}</span></div>`).join('') : '';
     box.dataset.html = html; box.innerHTML = html; box.hidden = !html || mode !== 'title';
   } catch (_) { }
